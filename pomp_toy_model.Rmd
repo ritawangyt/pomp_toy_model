@@ -43,9 +43,9 @@ H += dN_IR;
 ### Observational Models:
 ```{r}
 sir_rmeas <- Csnippet("
-                      reports = rnbinom_mu(k, rho*H);
+                      reports = rbinom(H, rho);
                       ")
-sir_dmeas <- Csnippet("lik=dnbinom_mu(reports, k, rho*H, give_log);
+sir_dmeas <- Csnippet("lik = dbinom(reports, H, rho, give_log);
                       ")
 
 #Expected Number of reported cases
