@@ -156,7 +156,7 @@ foreach(i=1:20, .combine = c,
 ) %dofuture% {
           pomp_inference |>
     mif2(
-      Np=200, Nmif=200,
+      Np=1000, Nmif=200,
       cooling.fraction.50 = 0.5,
       rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
       partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
@@ -204,7 +204,7 @@ foreach(guess=iter(guesses, "row"), .combine=c,
 ) %dofuture% {
           pomp_inference |>
     mif2(
-      Np=200, Nmif=50,
+      Np=1000, Nmif=50,
       cooling.fraction.50 = 0.5,
       rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
       partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
