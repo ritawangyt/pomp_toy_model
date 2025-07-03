@@ -139,7 +139,7 @@ pomp_inference <-
        accumvars = "H",
        statenames =c("S", "I", "R", "H"),
        paramnames = c("Beta","mu_IR", "N", "eta","rho","k"),
-       params=c(Beta=35, mu_IR=0.5, N=38000, eta=0.02, rho=0.4,k=10)
+       params=c(Beta=40, mu_IR=0.5, N=38000, eta=0.03, rho=0.4 ,k=10)
        
        )
 
@@ -147,7 +147,7 @@ pomp_inference <-
 
 ### Do a local search of the likelihood surface
 ```{r}
-fixed_params_sir <- c(N=38000, mu_IR=0.5, k=10)
+fixed_params_sir <- c(N=38000, mu_IR=0.5, k=10 , Beta = 40, eta = 0.03)
 fixed_params_sir <-coef(pomp_inference, names(fixed_params_sir))
 
 #Run iterated filtering
@@ -157,10 +157,10 @@ foreach(i=1:20, .combine = c,
           pomp_inference |>
     mif2(
       Np=1000, Nmif=200,
-      cooling.fraction.50 = 0.5,
-      rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
-      partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
-      paramnames = c("Beta", "rho", "eta")
+      cooling.fraction.50 = 0.9,
+      rw.sd = rw_sd(rho=0.02),
+      partrans=parameter_trans(logit=c("rho")),
+      paramnames = c("rho")
     )
         } -> mif_local
 
@@ -192,8 +192,8 @@ pairs(~loglik+Beta+eta+rho,data=results_local,pch=16)
 set.seed(2062379496)
 
 guesses <- runif_design(
-  lower=c(Beta=10, rho=0.2, eta=0),
-  upper=c(Beta=50, rho=0.9, eta=1),
+  lower=c(rho=0.2),
+  upper=c(rho=0.9),
   nseq=200
 )
 
@@ -205,10 +205,10 @@ foreach(guess=iter(guesses, "row"), .combine=c,
           pomp_inference |>
     mif2(
       Np=1000, Nmif=50,
-      cooling.fraction.50 = 0.5,
-      rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
-      partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
-      paramnames = c("Beta", "rho", "eta")
+      cooling.fraction.50 = 0.9,
+      rw.sd = rw_sd(rho=0.02),
+      partrans=parameter_trans(logit=c("rho")),
+      paramnames = c("rho")
     )
         } -> mif_global
 
