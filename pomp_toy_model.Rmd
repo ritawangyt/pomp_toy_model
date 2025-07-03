@@ -1,0 +1,243 @@
+---
+title: "Inference_on_simulated_dataset_Toy_Model_sir"
+author: "Rita Wang"
+date: "2025-07-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(pomp)
+library(foreach)
+library(doFuture)
+library(iterators)
+plan(multisession)
+```
+### Set up dataframe structure
+```{r}
+toy_dataset <- data.frame(
+  week = seq(1, 40, by = 1),  # 20 weekly time points
+  reports = NA             
+)
+```
+
+
+
+
+### The Process Model:
+```{r}
+sir_step <- Csnippet("
+double dN_SI = rbinom(S,1-exp(-Beta*I/N*dt));         
+double dN_IR = rbinom(I,1-exp(-mu_IR*dt));
+S -= dN_SI;
+I += dN_SI - dN_IR;
+R += dN_IR;
+H += dN_IR;
+")
+```
+
+### Observational Models:
+```{r}
+sir_rmeas <- Csnippet("
+                      reports = rnbinom_mu(k, rho*H);
+                      ")
+sir_dmeas <- Csnippet("lik=dnbinom_mu(reports, k, rho*H, give_log);
+                      ")
+
+#Expected Number of reported cases
+sir_emeas <- Csnippet("
+  E_reports = rho*H;"
+)
+
+```
+
+### Initial Conditions:
+```{r}
+sir_rinit <- Csnippet("
+S = nearbyint(eta*N);
+I = 1;
+R = nearbyint((1-eta)*N);
+H=0;                                    
+                      ")
+```
+
+
+### Define Parameters (for simulation)
+```{r}
+params <- c(
+  Beta = 40,         # transmission rate
+  mu_IR = 0.5,      # recovery rate (1/2 weeks)
+  N = 38000,         # total population
+  eta = 0.03,       # initial susceptible fraction
+  rho = 0.5,        # reporting probability
+  k = 10           # overdispersion
+)
+```
+
+
+### Build the Pomp Project:
+```{r}
+toy_dataset |>
+  pomp(times = "week",
+       t0=0, 
+       rprocess = euler(sir_step, delta.t=1/7), 
+       rinit=sir_rinit, 
+       rmeasure = sir_rmeas, 
+       dmeasure = sir_dmeas, 
+      accumvars = "H",                                              
+       statenames = c("S", "I", "R", "H"), 
+       paramnames = c("Beta","mu_IR","N","eta","rho","k")
+  ) -> sir_pomp 
+```
+
+
+
+
+### Simulate the dataset
+```{r}
+sim_data <- simulate(sir_pomp,
+                     params=params,
+  nsim = 1,
+  format = "data.frame",
+  include.data = FALSE                            
+)
+
+```
+
+### Visualize the simulated dataset:
+```{r}
+sim_data |>
+ggplot(aes(x=week,y=reports,group=.id,color=.id=="data"))+
+geom_line()+
+guides(color="none")
+```
+
+
+
+### Clean up the simulated dataset
+```{r}
+sim_data_clean <- sim_data |>
+  select(week, reports) 
+```
+
+
+### Building up pomp
+```{r}
+pomp_inference <-
+  sim_data_clean |>
+  pomp(times = "week",
+       t0=0,
+       rprocess=euler(sir_step,delta.t=1/7),
+       rmeasure = sir_rmeas,
+       dmeasure = sir_dmeas,
+       emeasure = sir_emeas,
+       rinit = sir_rinit,
+       accumvars = "H",
+       statenames =c("S", "I", "R", "H"),
+       paramnames = c("Beta","mu_IR", "N", "eta","rho","k"),
+       params=c(Beta=35, mu_IR=0.5, N=38000, eta=0.02, rho=0.4,k=10)
+       
+       )
+
+```
+
+### Do a local search of the likelihood surface
+```{r}
+fixed_params_sir <- c(N=38000, mu_IR=0.5, k=10)
+fixed_params_sir <-coef(pomp_inference, names(fixed_params_sir))
+
+#Run iterated filtering
+foreach(i=1:20, .combine = c,
+        .options.future=list(seed=482947940)
+) %dofuture% {
+          pomp_inference |>
+    mif2(
+      Np=200, Nmif=200,
+      cooling.fraction.50 = 0.5,
+      rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
+      partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
+      paramnames = c("Beta", "rho", "eta")
+    )
+        } -> mif_local
+
+
+#Iterated filtering diagnostics
+mif_local |>
+traces() |>
+melt() |>
+ggplot(aes(x=iteration,y=value,group=.L1,color=factor(.L1)))+
+geom_line()+
+guides(color="none")+
+facet_wrap(~
+name,scales="free_y")
+
+#Estimating the likelihood:
+foreach(mf=mif_local, .combine=rbind,
+        .options.future=list(seed=900242057)
+) %dofuture% {
+          evals <- replicate (10, logLik(pfilter(mf, Np=500)))
+          ll <- logmeanexp(evals, se=TRUE)
+          mf |> coef() |> bind_rows() |>
+            bind_cols(loglik=ll[1], loglik.se=ll[2])
+        } ->results_local
+
+pairs(~loglik+Beta+eta+rho,data=results_local,pch=16)
+```
+### Do a global search
+```{r}
+set.seed(2062379496)
+
+guesses <- runif_design(
+  lower=c(Beta=10, rho=0.2, eta=0),
+  upper=c(Beta=50, rho=0.9, eta=1),
+  nseq=200
+)
+
+
+#Run iterated filtering
+foreach(guess=iter(guesses, "row"), .combine=c,
+        .options.future=list(seed=1270401374)
+) %dofuture% {
+          pomp_inference |>
+    mif2(
+      Np=200, Nmif=50,
+      cooling.fraction.50 = 0.5,
+      rw.sd = rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02)),
+      partrans=parameter_trans(log="Beta", logit=c("rho", "eta")),
+      paramnames = c("Beta", "rho", "eta")
+    )
+        } -> mif_global
+
+
+#Iterated filtering diagnostics
+mif_global |>
+traces() |>
+melt() |>
+ggplot(aes(x=iteration,y=value,group=.L1,color=factor(.L1)))+
+geom_line()+
+guides(color="none")+
+facet_wrap(~
+name,scales="free_y")
+
+
+
+
+#Estimating the likelihood:
+foreach(mf=mif_global, .combine=rbind,
+        .options.future=list(seed=900242057)
+) %dofuture% {
+          evals <- replicate (10, logLik(pfilter(mf, Np=500)))
+          ll <- logmeanexp(evals, se=TRUE)
+          mf |> coef() |> bind_rows() |>
+            bind_cols(loglik=ll[1], loglik.se=ll[2])
+        } ->results_global
+
+pairs(~loglik+Beta+eta+rho,data=results_global,pch=16)
+
+```
+
+
