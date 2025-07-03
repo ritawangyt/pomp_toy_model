@@ -69,12 +69,11 @@ H=0;
 ### Define Parameters (for simulation)
 ```{r}
 params <- c(
-  Beta = 40,         # transmission rate
+  Beta = 2,         # transmission rate
   mu_IR = 0.5,      # recovery rate (1/2 weeks)
   N = 38000,         # total population
-  eta = 0.03,       # initial susceptible fraction
-  rho = 0.5,        # reporting probability
-  k = 10           # overdispersion
+  eta = 0.999,       # initial susceptible fraction
+  rho = 0.5        # reporting probability
 )
 ```
 
@@ -90,7 +89,7 @@ toy_dataset |>
        dmeasure = sir_dmeas, 
       accumvars = "H",                                              
        statenames = c("S", "I", "R", "H"), 
-       paramnames = c("Beta","mu_IR","N","eta","rho","k")
+       paramnames = c("Beta","mu_IR","N","eta","rho")
   ) -> sir_pomp 
 ```
 
@@ -138,8 +137,8 @@ pomp_inference <-
        rinit = sir_rinit,
        accumvars = "H",
        statenames =c("S", "I", "R", "H"),
-       paramnames = c("Beta","mu_IR", "N", "eta","rho","k"),
-       params=c(Beta=40, mu_IR=0.5, N=38000, eta=0.03, rho=0.4 ,k=10)
+       paramnames = c("Beta","mu_IR", "N", "eta","rho"),
+       params=c(Beta=2, mu_IR=0.5, N=38000, eta=0.999, rho=0.4)
        
        )
 
@@ -147,7 +146,7 @@ pomp_inference <-
 
 ### Do a local search of the likelihood surface
 ```{r}
-fixed_params_sir <- c(N=38000, mu_IR=0.5, k=10 , Beta = 40, eta = 0.03)
+fixed_params_sir <- c(N=38000, mu_IR=0.5, Beta = 2, eta = 0.999)
 fixed_params_sir <-coef(pomp_inference, names(fixed_params_sir))
 
 #Run iterated filtering
